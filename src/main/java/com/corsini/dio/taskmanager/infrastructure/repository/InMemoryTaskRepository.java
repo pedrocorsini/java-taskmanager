@@ -6,10 +6,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.stereotype.Repository;
+
 import com.corsini.dio.taskmanager.domain.Task;
 import com.corsini.dio.taskmanager.domain.TaskId;
 import com.corsini.dio.taskmanager.domain.TaskRepository;
 
+@Repository
 public class InMemoryTaskRepository implements TaskRepository{
 
     private final Map<TaskId, Task> storage = new HashMap<>();
