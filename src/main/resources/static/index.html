@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --background: #f8fafc;
+      --foreground: #0f172a;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --muted-foreground: #64748b;
+      --primary: #6366f1;
+      --primary-foreground: #ffffff;
+      --secondary: #f1f5f9;
+      --secondary-foreground: #334155;
+      --accent: #6366f1;
+      --placeholder: #94a3b8;
+    }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .slide-up { animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .task-card { transition: all 0.2s ease; }
+    .task-card:hover { transform: translateY(-2px); }
+    .dragging { opacity: 0.5; transform: scale(0.95); }
+    .drop-zone-active { border-style: dashed !important; border-color: var(--primary) !important; background: color-mix(in srgb, var(--primary) 8%, transparent) !important; }
+    .modal-overlay { backdrop-filter: blur(4px); }
+    .status-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary { background: var(--secondary); color: var(--secondary-foreground); }
+    .btn-secondary:hover { filter: brightness(1.1); }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); }
+    .empty-state-icon { font-size: 3rem; }
+    .column-count { min-width: 1.5rem; height: 1.5rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+    .toast { animation: toastIn 0.3s ease-out, toastOut 0.3s ease-in 2.7s; }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+    .search-input::placeholder { color: var(--placeholder, var(--muted-foreground)); }
+    body { font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen">
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+
+  <!-- Header -->
+  <header class="border-b border-[var(--border)] bg-[var(--card)]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg btn-primary flex items-center justify-center font-bold text-lg">T</div>
+          <div>
+            <h1 class="text-xl font-bold tracking-tight">Task Manager</h1>
+            <p class="text-xs text-[var(--muted-foreground)]">Gerencie suas tarefas com eficiência</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" id="search-input" placeholder="Buscar tarefas..." class="search-input bg-[var(--background)] border border-[var(--border)] rounded-lg pl-9 pr-4 py-2 text-sm w-48 sm:w-64 transition-all" oninput="filterTasks()">
+          </div>
+          <button onclick="openCreateModal()" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Nova Tarefa
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- View Toggle & Stats -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <button id="btn-kanban" onclick="setView('kanban')" class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer">
+          <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/></svg>
+          Kanban
+        </button>
+        <button id="btn-list" onclick="setView('list')" class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer">
+          <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+          Lista
+        </button>
+      </div>
+      <div id="stats" class="flex items-center gap-4 text-xs text-[var(--muted-foreground)]"></div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 pb-8">
+    <!-- Kanban View -->
+    <div id="kanban-view" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- PENDING Column -->
+      <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+        <div class="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            <span class="font-semibold text-sm">Pendente</span>
+          </div>
+          <span id="count-pending" class="column-count bg-amber-400/20 text-amber-600">0</span>
+        </div>
+        <div id="col-PENDING" class="p-3 min-h-[200px] flex flex-col gap-2 transition-all" ondragover="handleDragOver(event)" ondrop="handleDrop(event, 'PENDING')" ondragleave="handleDragLeave(event)">
+        </div>
+      </div>
+      <!-- IN_PROGRESS Column -->
+      <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+        <div class="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+            <span class="font-semibold text-sm">Em Progresso</span>
+          </div>
+          <span id="count-in_progress" class="column-count bg-blue-400/20 text-blue-600">0</span>
+        </div>
+        <div id="col-IN_PROGRESS" class="p-3 min-h-[200px] flex flex-col gap-2 transition-all" ondragover="handleDragOver(event)" ondrop="handleDrop(event, 'IN_PROGRESS')" ondragleave="handleDragLeave(event)">
+        </div>
+      </div>
+      <!-- COMPLETED Column -->
+      <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+        <div class="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <span class="font-semibold text-sm">Concluída</span>
+          </div>
+          <span id="count-completed" class="column-count bg-emerald-400/20 text-emerald-600">0</span>
+        </div>
+        <div id="col-COMPLETED" class="p-3 min-h-[200px] flex flex-col gap-2 transition-all" ondragover="handleDragOver(event)" ondrop="handleDrop(event, 'COMPLETED')" ondragleave="handleDragLeave(event)">
+        </div>
+      </div>
+    </div>
+
+    <!-- List View -->
+    <div id="list-view" class="hidden">
+      <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)] uppercase tracking-wider">
+              <th class="px-4 py-3 font-semibold">Título</th>
+              <th class="px-4 py-3 font-semibold hidden sm:table-cell">Descrição</th>
+              <th class="px-4 py-3 font-semibold">Status</th>
+              <th class="px-4 py-3 font-semibold text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="list-body"></tbody>
+        </table>
+        <div id="list-empty" class="hidden p-12 text-center">
+          <div class="empty-state-icon mb-3">📋</div>
+          <p class="text-[var(--muted-foreground)] text-sm">Nenhuma tarefa encontrada</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Create/Edit Modal -->
+  <div id="modal" class="fixed inset-0 z-40 hidden">
+    <div class="modal-overlay absolute inset-0 bg-black/40" onclick="closeModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-md slide-up relative">
+        <div class="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
+          <h2 id="modal-title" class="font-bold text-lg">Nova Tarefa</h2>
+          <button onclick="closeModal()" class="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors cursor-pointer">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <form id="task-form" onsubmit="handleSubmit(event)" class="p-6 space-y-4">
+          <input type="hidden" id="form-id">
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Título <span class="text-red-400">*</span></label>
+            <input type="text" id="form-title" required minlength="3" maxlength="100" placeholder="Ex: Implementar autenticação" class="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm transition-all">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Descrição</label>
+            <textarea id="form-description" maxlength="500" rows="3" placeholder="Descreva os detalhes da tarefa..." class="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm transition-all resize-none"></textarea>
+            <p class="text-xs text-[var(--muted-foreground)] mt-1"><span id="desc-count">0</span>/500</p>
+          </div>
+          <div id="status-field" class="hidden">
+            <label class="block text-sm font-medium mb-1.5">Status</label>
+            <select id="form-status" class="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm transition-all cursor-pointer">
+              <option value="PENDING">Pendente</option>
+              <option value="IN_PROGRESS">Em Progresso</option>
+              <option value="COMPLETED">Concluída</option>
+            </select>
+          </div>
+          <div class="flex gap-3 pt-2">
+            <button type="button" onclick="closeModal()" class="flex-1 btn-secondary px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer">Cancelar</button>
+            <button type="submit" id="submit-btn" class="flex-1 btn-primary px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer">Criar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="delete-modal" class="fixed inset-0 z-40 hidden">
+    <div class="modal-overlay absolute inset-0 bg-black/40" onclick="closeDeleteModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-sm slide-up relative">
+        <div class="p-6 text-center">
+          <div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </div>
+          <h3 class="font-bold text-lg mb-2">Excluir Tarefa?</h3>
+          <p class="text-sm text-[var(--muted-foreground)] mb-6">Essa ação não pode ser desfeita. A tarefa "<span id="delete-task-title" class="font-medium text-[var(--foreground)]"></span>" será removida permanentemente.</p>
+          <div class="flex gap-3">
+            <button onclick="closeDeleteModal()" class="flex-1 btn-secondary px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer">Cancelar</button>
+            <button onclick="confirmDelete()" class="flex-1 btn-danger px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer">Excluir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading" class="fixed inset-0 z-50 bg-[var(--background)] flex items-center justify-center">
+    <div class="text-center">
+      <div class="w-10 h-10 border-3 border-[var(--border)] border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-4"></div>
+      <p class="text-sm text-[var(--muted-foreground)]">Carregando tarefas...</p>
+    </div>
+  </div>
+
+  <!-- Connection Error Banner -->
+  <div id="error-banner" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-red-500 text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-3 text-sm">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span id="error-text">Erro de conexão com o servidor</span>
+    <button onclick="hideError()" class="ml-2 hover:text-red-200 cursor-pointer">✕</button>
+  </div>
+
+<script>
+  // ── Configuration ──
+  const API_BASE = '/tasks';
+  let tasks = [];
+  let currentView = 'kanban';
+  let deleteTaskId = null;
+  let searchQuery = '';
+
+  // ── Status Helpers ──
+  const STATUS_CONFIG = {
+    PENDING:     { label: 'Pendente',      color: 'bg-amber-400/15 text-amber-600',   dot: 'bg-amber-400' },
+    IN_PROGRESS: { label: 'Em Progresso',  color: 'bg-blue-400/15 text-blue-600',     dot: 'bg-blue-400' },
+    COMPLETED:   { label: 'Concluída',     color: 'bg-emerald-400/15 text-emerald-600', dot: 'bg-emerald-400' }
+  };
+
+  // ── API Functions ──
+  async function api(path = '', options = {}) {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `HTTP ${res.status}`);
+      }
+      if (res.status === 204) return null;
+      return await res.json();
+    } catch (e) {
+      if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+        showError('Não foi possível conectar ao servidor. Verifique se a API está rodando em localhost:8080');
+      }
+      throw e;
+    }
+  }
+
+  async function loadTasks() {
+    try {
+      tasks = await api();
+      render();
+      hideError();
+    } catch (e) {
+      console.error('Failed to load tasks:', e);
+    } finally {
+      document.getElementById('loading').classList.add('hidden');
+    }
+  }
+
+  async function createTask(title, description) {
+    const body = { title };
+    if (description) body.description = description;
+    const task = await api('', { method: 'POST', body: JSON.stringify(body) });
+    tasks.push(task);
+    render();
+    showToast('Tarefa criada com sucesso!', 'success');
+  }
+
+  async function updateTask(id, data) {
+    const task = await api(`/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+    const idx = tasks.findIndex(t => t.id === id);
+    if (idx !== -1) tasks[idx] = task;
+    render();
+    showToast('Tarefa atualizada!', 'success');
+  }
+
+  async function deleteTask(id) {
+    await api(`/${id}`, { method: 'DELETE' });
+    tasks = tasks.filter(t => t.id !== id);
+    render();
+    showToast('Tarefa excluída!', 'info');
+  }
+
+  // ── Rendering ──
+  function getFilteredTasks() {
+    if (!searchQuery) return tasks;
+    const q = searchQuery.toLowerCase();
+    return tasks.filter(t =>
+      t.title.toLowerCase().includes(q) ||
+      (t.description && t.description.toLowerCase().includes(q))
+    );
+  }
+
+  function render() {
+    const filtered = getFilteredTasks();
+    renderKanban(filtered);
+    renderList(filtered);
+    renderStats(filtered);
+  }
+
+  function renderStats(filtered) {
+    const total = filtered.length;
+    const pending = filtered.filter(t => t.status === 'PENDING').length;
+    const progress = filtered.filter(t => t.status === 'IN_PROGRESS').length;
+    const completed = filtered.filter(t => t.status === 'COMPLETED').length;
+    document.getElementById('stats').innerHTML = `
+      <span>Total: <strong>${total}</strong></span>
+      <span>·</span>
+      <span>Concluídas: <strong>${completed}</strong>${total > 0 ? ` (${Math.round(completed/total*100)}%)` : ''}</span>
+    `;
+  }
+
+  function createTaskCard(task) {
+    const cfg = STATUS_CONFIG[task.status];
+    return `
+      <div class="task-card bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 cursor-grab fade-in"
+           draggable="true" ondragstart="handleDragStart(event, '${task.id}')" ondragend="handleDragEnd(event)"
+           data-id="${task.id}">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <h3 class="font-semibold text-sm leading-snug flex-1 ${task.status === 'COMPLETED' ? 'line-through opacity-60' : ''}">${escapeHtml(task.title)}</h3>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button onclick="openEditModal('${task.id}')" class="p-1 rounded hover:bg-[var(--secondary)] transition-colors cursor-pointer" title="Editar">
+              <svg class="w-3.5 h-3.5 text-[var(--muted-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </button>
+            <button onclick="openDeleteModal('${task.id}')" class="p-1 rounded hover:bg-red-100 transition-colors cursor-pointer" title="Excluir">
+              <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </div>
+        </div>
+        ${task.description ? `<p class="text-xs text-[var(--muted-foreground)] leading-relaxed mb-2 line-clamp-2">${escapeHtml(task.description)}</p>` : ''}
+        <span class="status-badge ${cfg.color}">${cfg.label}</span>
+      </div>
+    `;
+  }
+
+  function renderKanban(filtered) {
+    const columns = { PENDING: [], IN_PROGRESS: [], COMPLETED: [] };
+    filtered.forEach(t => { if (columns[t.status]) columns[t.status].push(t); });
+
+    for (const [status, items] of Object.entries(columns)) {
+      const col = document.getElementById(`col-${status}`);
+      if (items.length === 0) {
+        col.innerHTML = `<div class="flex-1 flex items-center justify-center text-[var(--muted-foreground)] text-xs py-8 opacity-60">
+          <span>Arraste tarefas aqui</span>
+        </div>`;
+      } else {
+        col.innerHTML = items.map(createTaskCard).join('');
+      }
+    }
+
+    document.getElementById('count-pending').textContent = columns.PENDING.length;
+    document.getElementById('count-in_progress').textContent = columns.IN_PROGRESS.length;
+    document.getElementById('count-completed').textContent = columns.COMPLETED.length;
+  }
+
+  function renderList(filtered) {
+    const body = document.getElementById('list-body');
+    const empty = document.getElementById('list-empty');
+
+    if (filtered.length === 0) {
+      body.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    body.innerHTML = filtered.map(task => {
+      const cfg = STATUS_CONFIG[task.status];
+      return `
+        <tr class="border-b border-[var(--border)] hover:bg-[var(--secondary)]/30 transition-colors fade-in">
+          <td class="px-4 py-3">
+            <span class="font-medium text-sm ${task.status === 'COMPLETED' ? 'line-through opacity-60' : ''}">${escapeHtml(task.title)}</span>
+          </td>
+          <td class="px-4 py-3 hidden sm:table-cell">
+            <span class="text-xs text-[var(--muted-foreground)] line-clamp-1">${task.description ? escapeHtml(task.description) : '—'}</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="status-badge ${cfg.color}">${cfg.label}</span>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <div class="flex items-center justify-end gap-1">
+              ${task.status !== 'COMPLETED' ? `
+                <button onclick="quickAdvance('${task.id}')" class="p-1.5 rounded hover:bg-[var(--secondary)] transition-colors cursor-pointer" title="Avançar status">
+                  <svg class="w-4 h-4 text-[var(--muted-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </button>
+              ` : ''}
+              <button onclick="openEditModal('${task.id}')" class="p-1.5 rounded hover:bg-[var(--secondary)] transition-colors cursor-pointer" title="Editar">
+                <svg class="w-4 h-4 text-[var(--muted-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button onclick="openDeleteModal('${task.id}')" class="p-1.5 rounded hover:bg-red-100 transition-colors cursor-pointer" title="Excluir">
+                <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // ── View Toggle ──
+  function setView(view) {
+    currentView = view;
+    document.getElementById('kanban-view').classList.toggle('hidden', view !== 'kanban');
+    document.getElementById('list-view').classList.toggle('hidden', view !== 'list');
+    document.getElementById('btn-kanban').className = `px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${view === 'kanban' ? 'btn-primary' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'}`;
+    document.getElementById('btn-list').className = `px-3 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${view === 'list' ? 'btn-primary' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'}`;
+  }
+
+  // ── Search ──
+  function filterTasks() {
+    searchQuery = document.getElementById('search-input').value.trim();
+    render();
+  }
+
+  // ── Quick Advance Status ──
+  async function quickAdvance(id) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    const next = task.status === 'PENDING' ? 'IN_PROGRESS' : 'COMPLETED';
+    try {
+      await updateTask(id, { status: next });
+    } catch (e) {
+      showToast('Erro ao atualizar status', 'error');
+    }
+  }
+
+  // ── Drag & Drop ──
+  let draggedTaskId = null;
+
+  function handleDragStart(e, id) {
+    draggedTaskId = id;
+    e.target.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragEnd(e) {
+    e.target.classList.remove('dragging');
+    document.querySelectorAll('[id^="col-"]').forEach(c => c.classList.remove('drop-zone-active'));
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drop-zone-active');
+  }
+
+  function handleDragLeave(e) {
+    e.currentTarget.classList.remove('drop-zone-active');
+  }
+
+  async function handleDrop(e, newStatus) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drop-zone-active');
+    if (!draggedTaskId) return;
+    const task = tasks.find(t => t.id === draggedTaskId);
+    if (task && task.status !== newStatus) {
+      try {
+        await updateTask(draggedTaskId, { status: newStatus });
+      } catch (err) {
+        showToast('Erro ao mover tarefa', 'error');
+      }
+    }
+    draggedTaskId = null;
+  }
+
+  // ── Modal Functions ──
+  function openCreateModal() {
+    document.getElementById('modal-title').textContent = 'Nova Tarefa';
+    document.getElementById('submit-btn').textContent = 'Criar';
+    document.getElementById('form-id').value = '';
+    document.getElementById('form-title').value = '';
+    document.getElementById('form-description').value = '';
+    document.getElementById('desc-count').textContent = '0';
+    document.getElementById('status-field').classList.add('hidden');
+    document.getElementById('modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('form-title').focus(), 100);
+  }
+
+  function openEditModal(id) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    document.getElementById('modal-title').textContent = 'Editar Tarefa';
+    document.getElementById('submit-btn').textContent = 'Salvar';
+    document.getElementById('form-id').value = task.id;
+    document.getElementById('form-title').value = task.title;
+    document.getElementById('form-description').value = task.description || '';
+    document.getElementById('desc-count').textContent = (task.description || '').length;
+    document.getElementById('form-status').value = task.status;
+    document.getElementById('status-field').classList.remove('hidden');
+    document.getElementById('modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('form-title').focus(), 100);
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.add('hidden');
+  }
+
+  function openDeleteModal(id) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    deleteTaskId = id;
+    document.getElementById('delete-task-title').textContent = task.title;
+    document.getElementById('delete-modal').classList.remove('hidden');
+  }
+
+  function closeDeleteModal() {
+    document.getElementById('delete-modal').classList.add('hidden');
+    deleteTaskId = null;
+  }
+
+  async function confirmDelete() {
+    if (!deleteTaskId) return;
+    try {
+      await deleteTask(deleteTaskId);
+      closeDeleteModal();
+    } catch (e) {
+      showToast('Erro ao excluir tarefa', 'error');
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const id = document.getElementById('form-id').value;
+    const title = document.getElementById('form-title').value.trim();
+    const description = document.getElementById('form-description').value.trim();
+
+    try {
+      if (id) {
+        const data = { title, status: document.getElementById('form-status').value };
+        if (description) data.description = description;
+        await updateTask(id, data);
+      } else {
+        await createTask(title, description || undefined);
+      }
+      closeModal();
+    } catch (e) {
+      showToast('Erro ao salvar tarefa', 'error');
+    }
+  }
+
+  // ── Character Counter ──
+  document.getElementById('form-description').addEventListener('input', function() {
+    document.getElementById('desc-count').textContent = this.value.length;
+  });
+
+  // ── Toast Notifications ──
+  function showToast(message, type = 'info') {
+    const colors = {
+      success: 'bg-emerald-500',
+      error: 'bg-red-500',
+      info: 'bg-blue-500'
+    };
+    const icons = {
+      success: '✓',
+      error: '✕',
+      info: 'ℹ'
+    };
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${colors[type]} text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium`;
+    toast.innerHTML = `<span class="font-bold">${icons[type]}</span> ${escapeHtml(message)}`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
+  // ── Error Banner ──
+  function showError(msg) {
+    document.getElementById('error-text').textContent = msg;
+    document.getElementById('error-banner').classList.remove('hidden');
+  }
+  function hideError() {
+    document.getElementById('error-banner').classList.add('hidden');
+  }
+
+  // ── Utils ──
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ── Keyboard Shortcuts ──
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      closeDeleteModal();
+    }
+    if (e.key === 'n' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      openCreateModal();
+    }
+  });
+
+  // ── Init ──
+  setView('kanban');
+  loadTasks();
+</script>
+
+</body>
+</html>
